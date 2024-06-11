@@ -11,8 +11,8 @@ EXEC = main
 TEST_EXEC = test_attention
 
 # Source files
-SRCS = main.cpp attention.cpp
-TEST_SRCS = test_attention.cpp attention.cpp
+SRCS = main.cpp attention.cpp attention_gpu.cpp
+TEST_SRCS = test_attention.cpp attention.cpp attention_gpu.cpp
 
 # Object files
 OBJS = $(SRCS:.cpp=.o)
