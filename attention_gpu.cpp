@@ -1,15 +1,9 @@
-#include <cstdlib>
-#include <algorithm>
-#include <iostream>
-#include <cassert>
-#include <string>
-#include <sstream>
-#include <random>
-
-#include <cuda_runtime.h>
 #include <cublas_v2.h>
-#include <curand.h>
 #include <cudnn.h>
+#include <vector>
+#include <cmath>
+#include <iostream>
+#include <cuda_runtime.h>
 
 #include "helper_cuda.h"
 

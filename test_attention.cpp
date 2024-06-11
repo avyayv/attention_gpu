@@ -1,6 +1,4 @@
 // test_attention.cpp
-#include <iostream>
-#include <cassert>
 #include "attention.h"
 #include "attention_gpu.cpp"
 #include <cuda_runtime.h>
@@ -9,6 +7,12 @@
 #include <thrust/fill.h>
 #include <algorithm>
 #include "helper_cuda.h"
+
+#include <cassert>
+#include <iostream>
+#include <vector>
+#include <cublas_v2.h>
+#include <cudnn.h>
 
 void testDotProduct()
 {
