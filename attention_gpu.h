@@ -1,6 +1,6 @@
 // attention.h
-#ifndef ATTENTION_H
-#define ATTENTION_H
+#ifndef ATTENTION_GPU_H
+#define ATTENTION_GPU_H
 
 #include <vector>
 #include <cmath>
@@ -17,4 +17,4 @@ std::vector<std::vector<float>> scaledDotProductAttentionGpu(
     cublasHandle_t cublasHandle,
     cudnnHandle_t cudnnHandle);
 
-#endif // ATTENTION_H
+#endif // ATTENTION_GPU_H

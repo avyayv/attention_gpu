@@ -1,12 +1,12 @@
 // test_attention.cpp
 #include "attention.h"
-#include "attention_gpu.cpp"
-#include <cuda_runtime.h>
-#include <device_launch_parameters.h>
-#include <thrust/device_ptr.h>
-#include <thrust/fill.h>
-#include <algorithm>
-#include "helper_cuda.h"
+#include "attention_gpu.h"
+// #include <cuda_runtime.h>
+// #include <device_launch_parameters.h>
+// #include <thrust/device_ptr.h>
+// #include <thrust/fill.h>
+// #include <algorithm>
+// #include "helper_cuda.h"
 
 #include <cassert>
 #include <iostream>
@@ -58,10 +58,12 @@ void testScaledDotProductAttentionGpu()
     // Execute the GPU-accelerated attention function
     std::vector<std::vector<float>> output = scaledDotProductAttentionGpu(queries, keys, values, cublasHandle, cudnnHandle);
 
+
     // Verify that the output dimensions are correct
     assert(output.size() == queries.size() && "Output size should match number of queries");
     for (size_t i = 0; i < output.size(); ++i)
     {
+        std::cout << "The size is" << values[0].size() << std::endl;
         assert(output[i].size() == values[0].size() && "Inner dimension of output should match value dimension");
     }
 

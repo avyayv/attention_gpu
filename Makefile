@@ -4,7 +4,10 @@
 CXX = g++
 
 # Compiler flags
-CXXFLAGS = -std=c++11 -Wall
+CUDA_PATH = /usr/local/cuda
+CUDNN_PATH = /usr/local/cudnn
+CXXFLAGS = -std=c++11 -Wall -I$(CUDA_PATH)/include -I$(CUDNN_PATH)/include
+LDFLAGS = -L$(CUDA_PATH)/lib64 -L$(CUDNN_PATH)/lib64 -lcudart -lcublas -lcudnn
 
 # Executable names
 EXEC = main
@@ -26,11 +29,11 @@ all: $(EXEC)
 
 # Main executable
 $(EXEC): $(OBJS)
-	$(CXX) $(CXXFLAGS) -o $@ $^
+	$(CXX) $(CXXFLAGS) -o $@ $^ $(LDFLAGS)
 
 # Test executable
 $(TEST_EXEC): $(TEST_OBJS)
-	$(CXX) $(CXXFLAGS) -o $@ $^
+	$(CXX) $(CXXFLAGS) -o $@ $^ $(LDFLAGS)
 
 # Pattern rules for object files
 %.o: %.cpp $(HEADERS)
