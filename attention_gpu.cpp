@@ -7,6 +7,18 @@
 
 #include "helper_cuda.h"
 
+float* flatten(const std::vector<std::vector<float>>& matrix) {
+    int rows = matrix.size();
+    int cols = matrix[0].size();
+    float* flat = new float[rows * cols];
+    for (int i = 0; i < rows; i++) {
+        for (int j = 0; j < cols; j++) {
+            flat[j * rows + i] = matrix[i][j];
+        }
+    }
+    return flat;
+}
+
 std::vector<std::vector<float>> scaledDotProductAttentionGpu(
     const std::vector<std::vector<float>> &queries,
     const std::vector<std::vector<float>> &keys,
@@ -14,83 +26,79 @@ std::vector<std::vector<float>> scaledDotProductAttentionGpu(
     cublasHandle_t cublasHandle,
     cudnnHandle_t cudnnHandle)
 {
+    int m = queries.size();       // number of rows in queries and the output matrix
+    int k = queries[0].size();    // number of columns in queries and rows in keys^T
+    int n = keys.size();          // number of columns in keys and the output matrix
+    int v_dim = values[0].size(); // number of columns in values
 
-    int batchSize = 1; // Assuming the batch size is 1 for simplicity
-    int seqLengthQ = queries.size();
-    int seqLengthKV = keys.size();
-    int depth = queries[0].size();
-    int valueDim = values[0].size();
+    // Flatten the matrices for GPU computation, assuming these functions are defined to ensure contiguous storage
+    float* d_queries = flatten(queries);
+    float* d_keys = flatten(keys);
+    float *d_values = flatten(values);
 
-    float *d_queries;
-    float *d_keys;
-    float *d_values;
-    float *d_tempResult;      // Store intermediate result of QK^T
-    float *d_attentionScores; // After softmax
-    float *d_output;          // Multiplying the attention score by the value matrix
+    // Allocate memory on the GPU
+    float *d_q, *d_k, *d_v, *d_result, *d_attention_scores;
+    cudaMalloc(&d_q, m * k * sizeof(float));
+    cudaMalloc(&d_k, k * n * sizeof(float));
+    cudaMalloc(&d_v, n * v_dim * sizeof(float));
+    cudaMalloc(&d_result, m * v_dim * sizeof(float));
+    cudaMalloc(&d_attention_scores, m * n * sizeof(float));
 
-    size_t bytesQK = seqLengthQ * depth * sizeof(float);
-    size_t bytesV = seqLengthKV * valueDim * sizeof(float);
-    size_t bytesScores = seqLengthQ * seqLengthKV * sizeof(float);
+    // Copy matrices to device
+    cudaMemcpy(d_q, d_queries, m * k * sizeof(float), cudaMemcpyHostToDevice);
+    cudaMemcpy(d_k, d_keys, k * n * sizeof(float), cudaMemcpyHostToDevice);
+    cudaMemcpy(d_v, d_values, n * v_dim * sizeof(float), cudaMemcpyHostToDevice);
 
-    CUDA_CALL(cudaMalloc(&d_queries, bytesQK));
-    CUDA_CALL(cudaMalloc(&d_keys, bytesQK)); // assume square for simplicity
-    CUDA_CALL(cudaMalloc(&d_values, bytesV));
-    CUDA_CALL(cudaMalloc(&d_tempResult, bytesScores));
-    CUDA_CALL(cudaMalloc(&d_attentionScores, bytesScores));
-    CUDA_CALL(cudaMalloc(&d_output, seqLengthQ * valueDim * sizeof(float)));
-
-    // Copy data to device
-    cudaMemcpy(d_queries, queries.data(), bytesQK, cudaMemcpyHostToDevice);
-    cudaMemcpy(d_keys, keys.data(), bytesQK, cudaMemcpyHostToDevice);
-    cudaMemcpy(d_values, values.data(), bytesV, cudaMemcpyHostToDevice);
-
-    // Perform matrix multiplication QK^T using cuBLAS
-    const float alpha = 1.0f;
+    // Perform matrix multiplication using cuBLAS: d_attention_scores = d_queries * d_keys^T
+    const float alpha = 1.0f / sqrtf(k);
     const float beta = 0.0f;
-    CUBLAS_CALL(cublasSgemm(cublasHandle, CUBLAS_OP_N, CUBLAS_OP_T,
-                             seqLengthQ, seqLengthKV, depth,
-                             &alpha,
-                             d_queries, seqLengthQ,
-                             d_keys, seqLengthKV,
-                             &beta,
-                             d_tempResult, seqLengthQ));
+    cublasSgemm(cublasHandle, CUBLAS_OP_N, CUBLAS_OP_T,
+                m, n, k,
+                &alpha,
+                d_q, m,
+                d_k, k,
+                &beta,
+                d_attention_scores, m);
 
-    // Scale the product by sqrt(d_k)
-    float scale = 1.0 / std::sqrt(depth);
-    CUBLAS_CALL(cublasSscal(cublasHandle, seqLengthQ * seqLengthKV, &scale, d_tempResult, 1));
-
-    // Softmax on the scaled matrix
+    // Apply softmax to the attention scores
     cudnnTensorDescriptor_t tensorDesc;
-    CUDNN_CALL(cudnnCreateTensorDescriptor(&tensorDesc));
-    CUDNN_CALL(cudnnSetTensor4dDescriptor(tensorDesc, CUDNN_TENSOR_NCHW, CUDNN_DATA_FLOAT, batchSize, seqLengthQ, seqLengthKV, 1));
+    cudnnCreateTensorDescriptor(&tensorDesc);
+    cudnnSetTensor4dDescriptor(tensorDesc, CUDNN_TENSOR_NCHW, CUDNN_DATA_FLOAT, m, n, 1, 1);
 
-    const float alphaSoftmax = 1.0;
-    const float betaSoftmax = 0.0;
-    CUDNN_CALL(cudnnSoftmaxForward(cudnnHandle, CUDNN_SOFTMAX_ACCURATE, CUDNN_SOFTMAX_MODE_INSTANCE,
-                                    &alphaSoftmax, tensorDesc, d_tempResult, &betaSoftmax, tensorDesc, d_attentionScores));
+    float *d_softmax_output;
+    cudaMalloc(&d_softmax_output, m * n * sizeof(float));
+    float softmax_alpha = 1.0f, softmax_beta = 0.0f;
+    cudnnSoftmaxForward(cudnnHandle, CUDNN_SOFTMAX_ACCURATE, CUDNN_SOFTMAX_MODE_INSTANCE,
+                        &softmax_alpha, tensorDesc, d_attention_scores, &softmax_beta, tensorDesc, d_softmax_output);
 
-    // Multiply the softmax result with values V
-    CUBLAS_CALL(cublasSgemm(cublasHandle, CUBLAS_OP_N, CUBLAS_OP_N,
-                             seqLengthQ, valueDim, seqLengthKV,
-                             &alpha,
-                             d_attentionScores, seqLengthQ,
-                             d_values, seqLengthKV,
-                             &beta,
-                             d_output, seqLengthQ));
+    // Multiply softmax outputs with values
+    cublasSgemm(cublasHandle, CUBLAS_OP_N, CUBLAS_OP_N,
+                m, v_dim, n,
+                &alpha,
+                d_softmax_output, m,
+                d_v, n,
+                &beta,
+                d_result, m);
 
-    // Copy the result back to host
-    std::vector<std::vector<float>> output(seqLengthQ, std::vector<float>(valueDim));
-    cudaMemcpy(output.data(), d_output, seqLengthQ * valueDim * sizeof(float), cudaMemcpyDeviceToHost);
+    // Copy result back to host
+    std::vector<float> flat_result(m * v_dim);
+    cudaMemcpy(flat_result.data(), d_result, m * v_dim * sizeof(float), cudaMemcpyDeviceToHost);
 
-    // Free memory
-    cudaFree(d_queries);
-    cudaFree(d_keys);
-    cudaFree(d_values);
-    cudaFree(d_tempResult);
-    cudaFree(d_attentionScores);
-    cudaFree(d_output);
+    // Reshape flat_result into a 2D vector
+    std::vector<std::vector<float>> host_result(m, std::vector<float>(v_dim));
+    for (int i = 0; i < m; ++i)
+    {
+        std::copy(flat_result.begin() + i * v_dim, flat_result.begin() + (i + 1) * v_dim, host_result[i].begin());
+    }
 
+    // Free GPU memory
+    cudaFree(d_q);
+    cudaFree(d_k);
+    cudaFree(d_v);
+    cudaFree(d_result);
+    cudaFree(d_attention_scores);
+    cudaFree(d_softmax_output);
     cudnnDestroyTensorDescriptor(tensorDesc);
 
-    return output;
+    return host_result;
 }

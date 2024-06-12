@@ -14,6 +14,18 @@
 #include <cublas_v2.h>
 #include <cudnn.h>
 
+void printMatrixBlha(const std::vector<std::vector<float>> &matrix)
+{
+    for (const auto &row : matrix)
+    {
+        for (float elem : row)
+        {
+            std::cout << elem << " ";
+        }
+        std::cout << std::endl; // New line after each row
+    }
+}
+
 void testDotProduct()
 {
     std::vector<float> a = {1.0, 2.0, 3.0};
@@ -39,6 +51,7 @@ void testScaledDotProductAttention()
     std::vector<std::vector<float>> output = scaledDotProductAttention(queries, keys, values);
     assert(output.size() == queries.size());
     assert(output[0].size() == values[0].size());
+    printMatrixBlha(output);
     std::cout << "scaledDotProductAttention test passed" << std::endl;
 }
 
@@ -58,14 +71,10 @@ void testScaledDotProductAttentionGpu()
     // Execute the GPU-accelerated attention function
     std::vector<std::vector<float>> output = scaledDotProductAttentionGpu(queries, keys, values, cublasHandle, cudnnHandle);
 
-
     // Verify that the output dimensions are correct
-    assert(output.size() == queries.size() && "Output size should match number of queries");
-    for (size_t i = 0; i < output.size(); ++i)
-    {
-        std::cout << "The size is" << values[0].size() << std::endl;
-        assert(output[i].size() == values[0].size() && "Inner dimension of output should match value dimension");
-    }
+    assert(output.size() == queries.size());
+    assert(output[0].size() == values[0].size());
+    printMatrixBlha(output);
 
     // Log successful test completion
     std::cout << "GPU-based scaledDotProductAttention test passed" << std::endl;
