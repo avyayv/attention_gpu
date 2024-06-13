@@ -1,5 +1,6 @@
 // attention.cpp
 #include "attention.h"
+#include <iostream>
 
 float dotProduct(const std::vector<float> &a, const std::vector<float> &b)
 {
@@ -55,6 +56,13 @@ std::vector<std::vector<float>> scaledDotProductAttention(const std::vector<std:
     {
         attentionScores[i] = softmax(attentionScores[i]);
     }
+
+    for (const auto& row : attentionScores) {
+        for (const auto& elem : row) {
+            std::cout << elem << " ";
+        }
+    }
+    std::cout << std::endl;
 
     // Compute the output by multiplying the attention scores with the values
     std::vector<std::vector<float>> output(seqLength, std::vector<float>(values[0].size(), 0.0));

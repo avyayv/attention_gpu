@@ -39,14 +39,14 @@ std::vector<std::vector<float>> scaledDotProductAttentionGpu(
     // Allocate memory on the GPU
     float *d_q, *d_k, *d_v, *d_result, *d_attention_scores;
     cudaMalloc(&d_q, m * k * sizeof(float));
-    cudaMalloc(&d_k, k * n * sizeof(float));
+    cudaMalloc(&d_k, n * k * sizeof(float));
     cudaMalloc(&d_v, n * v_dim * sizeof(float));
     cudaMalloc(&d_result, m * v_dim * sizeof(float));
-    cudaMalloc(&d_attention_scores, m * n * sizeof(float));
+    cudaMalloc(&d_attention_scores, n * m * sizeof(float));
 
     // Copy matrices to device
     cudaMemcpy(d_q, d_queries, m * k * sizeof(float), cudaMemcpyHostToDevice);
-    cudaMemcpy(d_k, d_keys, k * n * sizeof(float), cudaMemcpyHostToDevice);
+    cudaMemcpy(d_k, d_keys, n * k * sizeof(float), cudaMemcpyHostToDevice);
     cudaMemcpy(d_v, d_values, n * v_dim * sizeof(float), cudaMemcpyHostToDevice);
 
     // Perform matrix multiplication using cuBLAS: d_attention_scores = d_queries * d_keys^T
@@ -56,10 +56,10 @@ std::vector<std::vector<float>> scaledDotProductAttentionGpu(
                 m, n, k,
                 &alpha,
                 d_q, m,
-                d_k, k,
+                d_k, n,
                 &beta,
                 d_attention_scores, m);
-
+    
     // Apply softmax to the attention scores
     cudnnTensorDescriptor_t tensorDesc;
     cudnnCreateTensorDescriptor(&tensorDesc);
@@ -71,22 +71,40 @@ std::vector<std::vector<float>> scaledDotProductAttentionGpu(
     cudnnSoftmaxForward(cudnnHandle, CUDNN_SOFTMAX_ACCURATE, CUDNN_SOFTMAX_MODE_INSTANCE,
                         &softmax_alpha, tensorDesc, d_attention_scores, &softmax_beta, tensorDesc, d_softmax_output);
 
+    std::vector<float> result(m * n);
+    cudaMemcpy(result.data(), d_softmax_output, m * n * sizeof(float), cudaMemcpyDeviceToHost);
+
+    for (float elem : result) {
+        std::cout << elem << " ";
+    }
+    std::cout << std::endl;
+
+    std::vector<float> v_result(n * v_dim);
+    cudaMemcpy(v_result.data(), d_v, n * v_dim * sizeof(float), cudaMemcpyDeviceToHost);
+
+    for (float elem : v_result) {
+        std::cout << elem << " ";
+    }
+    std::cout << std::endl;
+
+    const float values_alpha = 1.0f;
+    const float values_beta = 0.0f;
     // Multiply softmax outputs with values
     cublasSgemm(cublasHandle, CUBLAS_OP_N, CUBLAS_OP_N,
-                m, v_dim, n,
-                &alpha,
-                d_softmax_output, m,
+                n, k, n, 
+                &values_alpha,
+                d_softmax_output, n,
                 d_v, n,
-                &beta,
-                d_result, m);
+                &values_beta,
+                d_result, n); 
 
     // Copy result back to host
     std::vector<float> flat_result(m * v_dim);
     cudaMemcpy(flat_result.data(), d_result, m * v_dim * sizeof(float), cudaMemcpyDeviceToHost);
 
     // Reshape flat_result into a 2D vector
-    std::vector<std::vector<float>> host_result(m, std::vector<float>(v_dim));
-    for (int i = 0; i < m; ++i)
+    std::vector<std::vector<float>> host_result(n, std::vector<float>(v_dim));
+    for (int i = 0; i < n; ++i)
     {
         std::copy(flat_result.begin() + i * v_dim, flat_result.begin() + (i + 1) * v_dim, host_result[i].begin());
     }
